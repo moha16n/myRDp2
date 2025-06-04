@@ -1,0 +1,51 @@
+name: Free RDP
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+    - name: Enable RDP and create user
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        net user rdpuser P@ssw0rd!123 /add
+        net localgroup administrators rdpuser /add
+
+    - name: Download and configure Ngrok
+      run: |
+        Invoke-WebRequest -Uri https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
+        Expand-Archive ngrok.zip -DestinationPath $env:USERPROFILE\ngrok
+        & "$env:USERPROFILE\ngrok\ngrok.exe" config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
+
+    - name: Start Ngrok tunnel
+      shell: powershell
+      run: |
+        $ngrokPath = "$env:USERPROFILE\ngrok\ngrok.exe"
+        Start-Process -FilePath $ngrokPath -ArgumentList "tcp 3389" -NoNewWindow -PassThru
+        Start-Sleep -Seconds 25
+        $retry = 0
+        while ($retry -lt 5) {
+            try {
+                Invoke-WebRequest http://127.0.0.1:4040/api/tunnels -OutFile tunnel.json
+                break
+            } catch {
+                Start-Sleep -Seconds 5
+                $retry++
+            }
+        }
+        Get-Content tunnel.json
+
+    - name: Show login info
+      run: |
+        echo "======================================="
+        echo "✅ RDP Ready"
+        echo "👤 Username: rdpuser"
+        echo "🔑 Password: P@ssw0rd!123"
+        echo "📦 TCP Info موجود في tunnel.json"
+        echo "📄 انسخ العنوان من key: 'public_url'"
+        echo "======================================="
